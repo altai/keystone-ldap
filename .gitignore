@@ -1,0 +1,11 @@
+*.py[co]
+*~*
+\#*.*#
+\.#*.*
+3dparty
+.project
+.pydevproject
+.settings
+venv
+centosvenv
+.idea
