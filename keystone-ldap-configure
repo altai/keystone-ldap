@@ -1,0 +1,37 @@
+#!/bin/bash
+
+if [ $# != 2 ]; then
+    echo "usage: $0 <admin username> <admin password>"
+    exit 1
+fi
+
+SYSTEM_USER=$1
+SYSTEM_PASSWORD=$2
+
+# configure paste files for nova and glance
+PASTE_FILES="/etc/glance/glance-api-paste.ini /etc/glance/glance-registry-paste.ini /etc/nova/api-paste.ini"
+sed -i "s/^admin_user.*/admin_user = $SYSTEM_USER/" $PASTE_FILES
+sed -i "s/^admin_password.*/admin_password = $SYSTEM_PASSWORD/" $PASTE_FILES
+
+# configure focus
+cd /etc/focus/
+echo 'LDAP_INTEGRATION = True' >> local_settings.py
+sed -i "s/'username':.*\$/'username': '$SYSTEM_USER',/" local_settings.py
+sed -i "s/'password':.*\$/'password': '$SYSTEM_PASSWORD',/" local_settings.py
+
+# configure nova-billing
+python -c 'import json; f = "/etc/nova-billing/settings.json"; s = json.load(open(f)); s["keystone_conf"]["username"] = "'$SYSTEM_USER'"; s["keystone_conf"]["password"] = "'$SYSTEM_PASSWORD'"; json.dump(s, open(f, "w"), indent=4, sort_keys=True); '
+
+# update keystone's database
+KEYSTONE_SQL="update tenant set extra='"'{"enabled": true, "description": null, "users": ["'$SYSTEM_USER'"]}'"' where name='systenant'"
+if [[ $(grep mysql /etc/keystone/keystone.conf) =~ .*//([^:]+):([^@]+)@.* ]]; then
+    mysql "-u${BASH_REMATCH[1]}" "-p${BASH_REMATCH[2]}" keystone -e "$KEYSTONE_SQL"
+else
+    echo "please update keystone's database manually:"
+    echo "    $KEYSTONE_SQL"
+fi
+
+# restart the daemons
+for d in keystone nova-api glance-{api,registry} nova-billing-{heart,os-amqp} focus; do
+    service $d restart
+done
