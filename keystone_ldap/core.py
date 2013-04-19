@@ -107,11 +107,13 @@ class UserApi(common_ldap.BaseLdap):
             return None
 
     def _id_to_dn(self, id):
-        return "%s=%s,%s" % (
-            self.id_attr,
-            ldap.dn.escape_dn_chars(
-                base64.urlsafe_b64decode(str(id))),
-            self.tree_dn)
+        try:
+            unbased = base64.urlsafe_b64decode(str(id))
+            unbased.decode('utf-8') # just to validate
+            escaped =  ldap.dn.escape_dn_chars(unbased)
+        except (ValueError, TypeError, UnicodeError):
+            raise AssertionError('Invalid user / password')
+        return "%s=%s,%s" % (self.id_attr, escaped, self.tree_dn)
 
     @staticmethod
     def _dn_to_id(dn):
@@ -193,6 +195,8 @@ class Identity(backends_sql.Identity):
         Expects the user object to have a password field and the tenant to be
         in the list of tenants on the user.
         """
+        if user_id is None:
+            raise AssertionError('Invalid user / password')
         user_ldap = self.user._ldap_get(user_id)
         if user_ldap is None:
             raise AssertionError('Invalid user / password')
@@ -293,6 +297,8 @@ class Identity(backends_sql.Identity):
         Returns: a list of tenant ids.
 
         """
+        if user_id is None:
+            return []
         user_ldap = self.user._ldap_get(user_id)
         if user_ldap is None:
             return []
@@ -330,6 +336,8 @@ class Identity(backends_sql.Identity):
     # metadata crud
 
     def get_metadata(self, user_id, tenant_id):
+        if user_id is None or tenant_id is None:
+            return []
         tenant_ref = self.get_tenant(tenant_id)
         if not tenant_ref:
             return []
